@@ -68,7 +68,6 @@ th { background-color: #f4f4f4; }
 <div id="out"></div>
 <video id="video"></video>
 
-<!-- ZXing UMD -->
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
 
 <script>
@@ -104,16 +103,20 @@ function HKMC_Barcode_Content(code) {
     let vField = fields.find(f => f.startsWith('V'));
     if(vField) result["Vendor Code"] = vField.slice(1);
 
-    // P → Part Number
-    let pField = fields.find(f => f.startsWith('P'));
-    if(pField) result["HMC Part Number"] = pField.slice(1,11);
-
-    // S → Sequence (opcionális)
+    // P → HMC Part Number (mindig P és S között, 10 karakter)
+    let pIndex = code.indexOf('P');
     let sIndex = code.indexOf('S');
-    let tIndex = code.indexOf('T');
-    if(sIndex>=0 && tIndex>sIndex){
-        let seq = code.substring(sIndex+1, tIndex).replace(/[\x1E\x1D]/g,'');
-        result["Sequence Code"] = seq ? seq : '[nincs]';
+    if(pIndex >=0 && sIndex > pIndex){
+        result["HMC Part Number"] = code.substring(pIndex+1, pIndex+11);
+    }
+
+    // S → Sequence Code (S és T Marker között)
+    if(sIndex >=0){
+        let tIndex = code.indexOf('T', sIndex);
+        if(tIndex > sIndex){
+            let seq = code.substring(sIndex+1, tIndex).replace(/[\x1E\x1D]/g,'');
+            result["Sequence Code"] = seq ? seq : '[nincs]';
+        }
     }
 
     // T → Traceability
@@ -171,7 +174,7 @@ function resetAll(){
 // ---------------- Kamera ----------------
 let codeReader;
 function startCamera(){
-    resetAll(); // új kamera indításakor törli a táblázatot
+    resetAll(); // új kameraindításkor törli a táblázatot
 
     const videoElem = document.getElementById("video");
     videoElem.style.display="block";
