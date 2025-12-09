@@ -1,0 +1,9 @@
+{
+  "short_name": "HKMC",
+  "name": "HKMC Barcode Reader V1",
+  "start_url": "./",
+  "display": "standalone",
+  "theme_color": "#000",
+  "background_color": "#fff",
+  "icons": []
+}

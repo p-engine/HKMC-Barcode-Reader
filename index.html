@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HKMC Barcode Reader V1</title>
+
+<link rel="manifest" href="manifest.json">
+
+<style>
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f8f8f8;
+    margin: 20px;
+}
+header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+header img {
+    width: 40px;
+    height: 40px;
+    margin-right: 10px;
+}
+h2 {
+    margin: 0;
+    font-size: 1.5em;
+    color: #333;
+}
+.creator {
+    font-size:0.8em; font-weight:bold; color:gray; margin-top:2px;
+}
+input[type="text"] {
+    padding: 10px;
+    width: 60%;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-right: 5px;
+    font-size: 1em;
+}
+button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    background-color: #fff;
+    color: #333;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-right: 5px;
+    transition: all 0.2s ease;
+}
+button:hover { background-color: #f0f0f0; }
+#err { color: red; font-weight: bold; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
+td, th { border: 1px solid #e0e0e0; padding: 8px; text-align: left; }
+th { background-color: #f4f4f4; }
+#video { width: 100%; margin-top: 10px; display: none; border-radius: 8px; }
+</style>
+</head>
+
+<body>
+
+<header>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c2/Harman_International_logo.svg" alt="Harman Logo">
+    <div>
+        <h2>HKMC Barcode Reader V1</h2>
+        <div style="font-size:0.4em; font-weight:bold; color:gray; margin-top:2px;">Creator @pboldog</div>
+    </div>
+</header>
+
+<input id="codeInput" placeholder="Írd be vagy szkenneld..." type="text" />
+<button onclick="decode()">Dekódolás</button>
+<button onclick="startCamera()">Kamera indítása</button>
+<button onclick="resetAll()">Reset</button>
+
+<div id="err"></div>
+<div id="out"></div>
+<video id="video"></video>
+
+<!-- ZXing UMD -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
+
+<script>
+/* ---------------- HKMC Dekódoló minden formátumra ---------------- */
+function HKMC_Barcode_Content(code) {
+    if(!code) return "HIBA";
+
+    // Eltávolítjuk a kontroll karaktereket (EOT), delimiter-eket megtartjuk
+    let cleanCode = code.replace(/[\x04]/g,'');
+    let delimiters = /[\x1D\x1E]/g;
+    let parts = cleanCode.split(delimiters).filter(f=>f.length>0);
+
+    try {
+        let header="[nincs]", vendor_marker="V", vendor_code="[nincs]", part_marker="P", part_number="[nincs]";
+        let seq_marker="[nincs]", seq_code="[nincs]", trace_marker="T", date_val="[nincs]", plant="[nincs]";
+        let pn_marker="P", hpn="[nincs]", supplier_marker="C", supplier="[nincs]";
+
+        if(parts.length>1){
+            let idx=0;
+            header = parts[idx].startsWith("[)>06") ? "[)>06" : "[nincs]";
+            if(header === "[)>06") idx++;
+
+            vendor_code = parts[idx] ? parts[idx].replace(/^V/,'') : "[nincs]"; idx++;
+            part_number = parts[idx] ? parts[idx].replace(/^P/,'') : "[nincs]"; idx++;
+
+            seq_marker = parts[idx] && parts[idx][0]!=='T' ? parts[idx][0] : "[nincs]";
+            seq_code = parts[idx] ? parts[idx].replace(seq_marker,'') : "[nincs]"; idx++;
+
+            if(parts[idx] && parts[idx].startsWith("T")){
+                let tfield = parts[idx].slice(1);
+                date_val = tfield.slice(0,6);
+                plant = tfield.slice(6,10);
+                pn_marker = "P";
+                hpn = tfield.slice(10,21) || '[nincs]';
+                idx++;
+            }
+
+            if(parts[idx] && parts[idx].startsWith("C")){
+                supplier_marker="C";
+                supplier = parts[idx].slice(1,4) || '[nincs]';
+            }
+        } else {
+            // Fix hosszú mezők
+            let rest = cleanCode;
+            if(rest.startsWith("[)>06")){
+                header = "[)>06"; rest=rest.slice(5);
+            }
+            if(rest[0]==='V'){ vendor_marker="V"; vendor_code = rest.slice(1,5); rest=rest.slice(5); }
+            if(rest[0]==='P'){ part_marker="P"; part_number = rest.slice(1,11); rest=rest.slice(11); }
+            if(rest[0]!=='T' && rest.length>=3){ seq_marker=rest[0]; seq_code=rest.slice(1,4); rest=rest.slice(4); }
+            if(rest[0]==='T'){ trace_marker="T"; rest=rest.slice(1); }
+            if(rest.length>=6){ date_val=rest.slice(0,6); rest=rest.slice(6); }
+            if(rest.length>=4){ plant=rest.slice(0,4); rest=rest.slice(4); }
+            if(rest[0]==='P'){ pn_marker="P"; rest=rest.slice(1); }
+            if(rest.length>=11){ hpn=rest.slice(0,11); rest=rest.slice(11); }
+            if(rest[0]==='C'){ supplier_marker="C"; supplier = rest.slice(1,4); }
+        }
+
+        return {
+            "Header": header,
+            "Vendor Code - Marker": vendor_marker,
+            "Vendor Code": vendor_code,
+            "HMC Part Number - Marker": part_marker,
+            "HMC Part Number": part_number,
+            "Sequence Code - Marker": seq_marker,
+            "Sequence Code": seq_code,
+            "Traceability Code - Marker": trace_marker,
+            "Traceability Code - Date (YYMMDD)": date_val,
+            "Traceability Code - Plant Info": plant,
+            "Traceability Code Harman P/N Marker": pn_marker,
+            "Traceability Code Harman P/N": hpn,
+            "Supplier's Area - Marker": supplier_marker,
+            "Supplier's Area": supplier
+        };
+
+    } catch(e){
+        return "HIBA";
+    }
+}
+
+/* ---------------- UI ---------------- */
+function decode(){
+    let txt = document.getElementById("codeInput").value;
+    let r = HKMC_Barcode_Content(txt);
+    if(r==="HIBA"){
+        document.getElementById("err").innerText="HIBÁS KÓD!";
+        document.getElementById("out").innerHTML="";
+        return;
+    }
+    document.getElementById("err").innerText="";
+    let html = "<table>";
+    for(let k in r){ html += `<tr><th>${k}</th><td>${r[k]}</td></tr>`; }
+    html += "</table>";
+    document.getElementById("out").innerHTML = html;
+}
+
+/* ---------------- Reset ---------------- */
+function resetAll(){
+    document.getElementById("codeInput").value = "";
+    document.getElementById("out").innerHTML = "";
+    document.getElementById("err").innerText = "";
+    document.getElementById("video").style.display = "none";
+}
+
+/* ---------------- Kamera ---------------- */
+let codeReader;
+function startCamera(){
+    document.getElementById("video").style.display="block";
+    if(!codeReader) codeReader = new ZXing.BrowserMultiFormatReader();
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+    .then(()=>{
+        codeReader.decodeFromVideoDevice(null,'video',(result,err)=>{
+            if(result){
+                document.getElementById("codeInput").value = result.text;
+                decode();
+            }
+        });
+    })
+    .catch(e=>{
+        document.getElementById("err").innerText = "Kamera hiba: " + e;
+    });
+}
+
+/* ---------------- PWA ---------------- */
+if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js');
+}
+</script>
+
+</body>
+</html>
