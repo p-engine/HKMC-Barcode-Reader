@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HKMC Barcode Reader V1</title>
+<title>HKMC Barcode Reader V1.0</title>
 
 <link rel="manifest" href="manifest.json">
 
@@ -104,8 +104,9 @@ function HKMC_Barcode_Content(code) {
         "Supplier's Area":"[nincs]"
     };
 
-    // Header – most már független a delimiter-től
-    if(code.includes("[)>06")) {
+    // Header – RS/GS karakterekkel is felismeri
+    let headerMatch = code.match(/\[\)>([\x1E\x1D]?)+06/);
+    if(headerMatch){
         result["Header"] = "[)>06";
     }
 
@@ -159,8 +160,12 @@ function decode(){
         return;
     }
     document.getElementById("err").innerText="";
+
     let html = "<table>";
-    for(let k in r){ html += `<tr><th>${k}</th><td>${r[k]}</td></tr>`; }
+    for(let k in r){
+        let val = r[k] === "[nincs]" ? `<span style="color:red;font-weight:bold">${r[k]}</span>` : r[k];
+        html += `<tr><th>${k}</th><td>${val}</td></tr>`;
+    }
     html += "</table>";
     document.getElementById("out").innerHTML = html;
 }
@@ -171,23 +176,27 @@ function resetAll(){
     document.getElementById("out").innerHTML = "";
     document.getElementById("err").innerText = "";
     document.getElementById("video").style.display = "none";
+    if(codeReader) codeReader.reset(); // kamera leállítása
 }
 
 /* ---------------- Kamera ---------------- */
 let codeReader;
 function startCamera(){
-    document.getElementById("video").style.display="block";
+    const videoElem = document.getElementById("video");
+    videoElem.style.display="block";
+
     if(!codeReader) codeReader = new ZXing.BrowserMultiFormatReader();
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
-    .then(()=>{
-        codeReader.decodeFromVideoDevice(null,'video',(result,err)=>{
-            if(result){
-                document.getElementById("codeInput").value = result.text;
-                decode();
-            }
-        });
-    })
-    .catch(e=>{
+
+    codeReader.decodeFromVideoDevice(null, videoElem, (result, err) => {
+        if(result){
+            // Kód beolvasva, kiírjuk és leállítjuk a kamerát
+            document.getElementById("codeInput").value = result.text;
+            decode();
+
+            codeReader.reset();       // kamera leállítása
+            videoElem.style.display="none"; // video eltüntetése
+        }
+    }).catch(e=>{
         document.getElementById("err").innerText = "Kamera hiba: " + e;
     });
 }
