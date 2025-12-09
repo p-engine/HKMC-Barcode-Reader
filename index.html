@@ -104,8 +104,10 @@ function HKMC_Barcode_Content(code) {
         "Supplier's Area":"[nincs]"
     };
 
-    // Header
-    if(fields[0] && fields[0].startsWith("[)>06")) result["Header"] = "[)>06";
+    // Header – most már független a delimiter-től
+    if(code.includes("[)>06")) {
+        result["Header"] = "[)>06";
+    }
 
     // V → Vendor
     let vField = fields.find(f => f.startsWith('V'));
