@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HKMC Barcode Reader V1.0</title>
+<title>HKMC Barcode Reader V1</title>
+
+<!-- Cache-busting meta -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 
 <link rel="manifest" href="manifest.json">
 
@@ -79,7 +84,7 @@ th { background-color: #f4f4f4; }
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
 
 <script>
-/* ---------------- HKMC Marker-alapú dekódoló ---------------- */
+// ---------------- HKMC Marker-alapú dekódoló ----------------
 function HKMC_Barcode_Content(code) {
     if(!code) return "HIBA";
 
@@ -150,7 +155,7 @@ function HKMC_Barcode_Content(code) {
     return result;
 }
 
-/* ---------------- UI ---------------- */
+// ---------------- UI ----------------
 function decode(){
     let txt = document.getElementById("codeInput").value;
     let r = HKMC_Barcode_Content(txt);
@@ -170,16 +175,16 @@ function decode(){
     document.getElementById("out").innerHTML = html;
 }
 
-/* ---------------- Reset ---------------- */
+// ---------------- Reset ----------------
 function resetAll(){
     document.getElementById("codeInput").value = "";
     document.getElementById("out").innerHTML = "";
     document.getElementById("err").innerText = "";
     document.getElementById("video").style.display = "none";
-    if(codeReader) codeReader.reset(); // kamera leállítása
+    if(codeReader) codeReader.reset();
 }
 
-/* ---------------- Kamera ---------------- */
+// ---------------- Kamera ----------------
 let codeReader;
 function startCamera(){
     const videoElem = document.getElementById("video");
@@ -189,17 +194,19 @@ function startCamera(){
 
     codeReader.decodeFromVideoDevice(null, videoElem, (result, err) => {
         if(result){
-            // Kód beolvasva, kiírjuk és leállítjuk a kamerát
             document.getElementById("codeInput").value = result.text;
             decode();
 
-            codeReader.reset();       // kamera leállítása
-            videoElem.style.display="none"; // video eltüntetése
+            codeReader.reset();
+            videoElem.style.display="none";
         }
     }).catch(e=>{
         document.getElementById("err").innerText = "Kamera hiba: " + e;
     });
 }
+
+// ---------------- Cache-busting verziózás (opcionális) ----------------
+// Ha külön JS fájlban lenne a kód, itt lehetne verziózni a betöltést
 </script>
 
 </body>
