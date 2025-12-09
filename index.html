@@ -38,168 +38,230 @@
   </div>
 </header>
 
-<button id="startScan">Kamera indítása</button>
-<button id="restartScan" style="display:none;">Újra szkennelés</button>
-<div id="cameraContainer"></div>
+<button id="startBtn">Kamera indítása</button>
+<button id="stopBtn" style="display:none">Kamera leállítása</button>
 
-<table id="resultTable" style="display:none;">
-<tbody></tbody>
-</table>
+<div id="err"></div>
+<div id="out"></div>
+<video id="video" autoplay muted></video>
+
+<!-- ZXing -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
 
 <script>
-let videoStream=null;
-
-function beep(){
-    try{
-        const ctx=new AudioContext();
-        const osc=ctx.createOscillator();
-        osc.connect(ctx.destination);
-        osc.frequency.value=800;
-        osc.start();
-        setTimeout(()=>osc.stop(),120);
-    }catch(e){}
+function fmtVal(v){
+  return v === '[nincs]' ? `<span class="missing">${v}</span>` : v;
 }
 
-async function startCamera(){
-    const container=document.getElementById('cameraContainer');
-    container.innerHTML="";
-    const video=document.createElement('video');
-    container.appendChild(video);
+/* -------------------- PARSER (módosítva) --------------------- */
+function HKMC_Barcode_Content(code){
+  if(!code) return "HIBA";
 
-    videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    video.srcObject=videoStream;
-    await video.play();
+  code = code.replace(/\x04/g,'');
+  const fields = code.split(/[\x1E\x1D]/).filter(f=>f.length>0);
 
-    const barcodeDetector=new BarcodeDetector({formats:["code128","qr_code"]});
-    const scanLoop=async()=>{
-        if(!videoStream) return;
-        try{
-            const codes=await barcodeDetector.detect(video);
-            if(codes.length>0){
-                const raw=codes[0].rawValue;
-                beep();
-                stopCamera();
-                handleCode(raw);
-                return;
-            }
-        }catch(e){}
-        requestAnimationFrame(scanLoop);
-    };
-    requestAnimationFrame(scanLoop);
+  const result = {
+    "Header":"[nincs]",
+    "Vendor Code - Marker":"[nincs]",
+    "Vendor Code":"[nincs]",
+    "HMC Part Number - Marker":"[nincs]",
+    "HMC Part Number":"[nincs]",
+    "Sequence Code - Marker":"[nincs]",
+    "Sequence Code":"[nincs]",
+    "Traceability Code - Marker":"[nincs]",
+    "Traceability Code - Date (YYMMDD)":"[nincs]",
+    "Traceability Code - Plant Info":"[nincs]",
+    "Traceability Code Harman P/N Marker":"[nincs]",
+    "Traceability Code Harman P/N":"[nincs]",
+    "Supplier's Area - Marker":"[nincs]",
+    "Supplier's Area":"[nincs]"
+  };
+
+  const headerRegex = /\[\)>(?:[\x1E\x1D])*06/;
+  if(headerRegex.test(code)) result["Header"] = "[)>06";
+
+  const findField = (letter) =>
+    fields.find(f => f.startsWith(letter));
+
+  /* --- Vendor V --- */
+  const vField = findField('V');
+  const vPos = code.indexOf('V');
+  if(vField){
+    result["Vendor Code - Marker"] = 'V';
+    result["Vendor Code"] = vField.slice(1) || '[nincs]';
+  } else if(vPos>=0){
+    result["Vendor Code - Marker"]='V';
+    result["Vendor Code"]=code.substring(vPos+1,vPos+5)||"[nincs]";
+  }
+
+  /* --- HMC Part P --- */
+  const pPos = code.indexOf('P');
+  const sPos = code.indexOf('S');
+  if(pPos>=0){
+    result["HMC Part Number - Marker"]="P";
+    result["HMC Part Number"]=code.substring(pPos+1,pPos+11)||"[nincs]";
+  }else{
+    // fallback - Vendor után 10 char
+    if(result["Vendor Code"]!=="[nincs]"){
+      let i=code.indexOf(result["Vendor Code"]);
+      result["HMC Part Number"]=code.substring(i+result["Vendor Code"].length,i+result["Vendor Code"].length+10)||"[nincs]";
+    }
+  }
+
+  /* --- Sequence S --- */
+  const tPos = code.indexOf('T');
+  if(sPos>=0){
+    result["Sequence Code - Marker"]="S";
+    let end = (tPos>sPos)?tPos:code.length;
+    let seq=code.substring(sPos+1,end).replace(/[\x1E\x1D]/g,'').trim();
+    result["Sequence Code"]=seq||'[nincs]';
+  }
+
+  /* --- Traceability T --- */
+  if(tPos>=0){
+    result["Traceability Code - Marker"]="T";
+    let nextC = code.indexOf('C',tPos+1);
+    let chunk = (nextC>tPos?code.substring(tPos,nextC):code.substring(tPos));
+    chunk = chunk.replace(/[\x1E\x1D]/g,'');
+    const dat = chunk.slice(1);
+
+    if(dat.length>=6) result["Traceability Code - Date (YYMMDD)"]=dat.slice(0,6);
+    if(dat.length>=10) result["Traceability Code - Plant Info"]=dat.slice(6,10);
+
+    let rest=dat.slice(10);
+    if(rest.startsWith("@")){
+      result["Traceability Code Harman P/N Marker"]="@";
+      result["Traceability Code Harman P/N"]=rest.slice(1)||"[nincs]";
+    }else if(rest.length){
+      result["Traceability Code Harman P/N"]=rest;
+    }
+  }
+
+  /* --- Supplier C --- */
+  const cField = findField('C');
+  const cPos = code.indexOf('C');
+  if(cField){
+    result["Supplier's Area - Marker"]="C";
+    result["Supplier's Area"]=cField.slice(1,4)||"[nincs]";
+  }else if(cPos>=0){
+    result["Supplier's Area - Marker"]="C";
+    result["Supplier's Area"]=code.substring(cPos+1,cPos+4)||"[nincs]";
+  }
+
+  return result;
 }
+
+/* -------------------- render ---------------------- */
+function renderResult(obj){
+  if(obj === "HIBA") {
+    document.getElementById('err').innerText = "HIBÁS KÓD!";
+    document.getElementById('out').innerHTML = '';
+    return;
+  }
+  document.getElementById('err').innerText = '';
+
+  let html = '<table>';
+  const keys = [
+    "Header",
+    "Vendor Code - Marker",
+    "Vendor Code",
+    "HMC Part Number - Marker",
+    "HMC Part Number",
+    "Sequence Code - Marker",
+    "Sequence Code",
+    "Traceability Code - Marker",
+    "Traceability Code - Date (YYMMDD)",
+    "Traceability Code - Plant Info",
+    "Traceability Code Harman P/N Marker",
+    "Traceability Code Harman P/N",
+    "Supplier's Area - Marker",
+    "Supplier's Area"
+  ];
+  for(const k of keys){
+    const v = obj[k] !== undefined ? obj[k] : '[nincs]';
+    html += `<tr><th>${k}</th><td>${fmtVal(v)}</td></tr>`;
+  }
+  html += '</table>';
+  document.getElementById('out').innerHTML = html;
+}
+
+/* -------------------- beep ----------------------- */
+function beepShort(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 1000;
+    o.connect(g);
+    g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+    setTimeout(()=>{ o.stop(); ctx.close(); }, 200);
+  }catch(e){}
+}
+
+/* -------------------- Camera ---------------------- */
+let codeReader = null;
+const videoElem = document.getElementById('video');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function resetAll(){
+  document.getElementById('out').innerHTML = '';
+  document.getElementById('err').innerText = '';
+  videoElem.style.display = 'none';
+  if(codeReader) {
+    try { codeReader.reset(); } catch(e){}
+  }
+  startBtn.style.display = '';
+  stopBtn.style.display = 'none';
+}
+
+startBtn.addEventListener('click', startCamera);
+stopBtn.addEventListener('click', stopCamera);
 
 function stopCamera(){
-    if(videoStream){
-        videoStream.getTracks().forEach(t=>t.stop());
-        videoStream=null;
-    }
-    document.getElementById('cameraContainer').innerHTML="";
+  if(codeReader){
+    try{ codeReader.reset(); }catch(e){}
+  }
+  videoElem.style.display = 'none';
+  startBtn.style.display = '';
+  stopBtn.style.display = 'none';
 }
 
-function addRow(title,value){
-    const tbody=document.querySelector("#resultTable tbody");
-    const tr=document.createElement("tr");
-    tr.innerHTML=`<th>${title}</th><td>${value||"[nincs]"}</td>`;
-    tbody.appendChild(tr);
+function startCamera(){
+  resetAll();
+  videoElem.style.display = 'block';
+  startBtn.style.display = 'none';
+  stopBtn.style.display = '';
+
+  if(!codeReader) codeReader = new ZXing.BrowserMultiFormatReader();
+
+  codeReader.decodeFromVideoDevice(null, videoElem, (result, err) => {
+    if(result){
+      const text = result.text || '';
+      const parsed = HKMC_Barcode_Content(text);
+      renderResult(parsed);
+
+      beepShort();
+      if(navigator.vibrate) navigator.vibrate(180);
+
+      try{ codeReader.reset(); }catch(e){}
+      videoElem.style.display = 'none';
+      startBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    }
+  }).catch(e=>{
+    document.getElementById('err').innerText = "Kamera hiba: " + (e?.message||e);
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+    try{ if(codeReader) codeReader.reset(); }catch(e){}
+    videoElem.style.display = 'none';
+  });
 }
-
-function handleCode(code){
-    // remove control chars
-    code=code.replace(/[\x00-\x1F]/g,'');
-    console.log("RAW:",code);
-
-    document.querySelector("#resultTable tbody").innerHTML="";
-    document.getElementById("resultTable").style.display="table";
-    document.getElementById("restartScan").style.display="inline";
-    
-    const result={};
-
-    //---------------- HEADER -----------------
-    result["HEADER"]=code.includes("[)>06")?"[)>06":"[nincs]";
-
-    //---------------- Vendor -----------------
-    let vIndex=code.indexOf('V');
-    if(vIndex>=0){
-        result["Vendor Code Marker"]='V';
-        result["Vendor Code"]=code.substring(vIndex+1,vIndex+5)||"[nincs]";
-    }else{
-        result["Vendor Code"]="[nincs]";
-    }
-
-    //---------------- HMC Part Number --------
-    let pIndex=code.indexOf('P');
-    if(pIndex>=0){
-        result["HMC Part Marker"]='P';
-        result["HMC Part Number"]=code.substring(pIndex+1,pIndex+11)||"[nincs]";
-    }else{
-        // fallback → vendor után 10 char
-        if(result["Vendor Code"]!=="[nincs]"){
-            let pos=code.indexOf(result["Vendor Code"]);
-            result["HMC Part Number"]=code.substring(pos+result["Vendor Code"].length, pos+result["Vendor Code"].length+10)||"[nincs]";
-        }else{
-            result["HMC Part Number"]="[nincs]";
-        }
-    }
-
-    //---------------- Sequence optional ------
-    let sIndex=code.indexOf('S');
-    let tIndex=code.indexOf('T');
-    if(sIndex>=0){
-        result["Sequence Marker"]='S';
-        if(tIndex>sIndex){
-            result["Sequence Code"]=code.substring(sIndex+1,tIndex).trim()||"[nincs]";
-        }else{
-            result["Sequence Code"]=code.substring(sIndex+1).trim()||"[nincs]";
-        }
-    }else{
-        result["Sequence Code"]="[nincs]";
-    }
-
-    //---------------- Traceability -----------
-    if(tIndex>=0){
-        result["Traceability Marker"]='T';
-        result["Traceability"]=code.substring(tIndex+1,tIndex+15)||"[nincs]";
-    }else{
-        result["Traceability"]="[nincs]";
-    }
-
-    //---------------- Harman PN  ------------
-    let atIndex=code.indexOf('@');
-    if(atIndex>=0){
-        result["Harman Marker"]='@';
-        result["Harman PN"]=code.substring(atIndex+1,atIndex+7)||"[nincs]";
-    }else{
-        result["Harman PN"]="[nincs]";
-    }
-
-    //---------------- Supplier ---------------
-    let cIndex=code.indexOf('C');
-    if(cIndex>=0){
-        result["Supplier Marker"]='C';
-        result["Supplier Area"]=code.substring(cIndex+1,cIndex+4)||"[nincs]";
-    }else{
-        result["Supplier Area"]="[nincs]";
-    }
-
-    //------- output table --------------------
-    for(const k in result){
-        addRow(k,result[k]);
-    }
-}
-
-// Buttons
-document.getElementById("startScan").onclick=()=>{
-    document.getElementById("resultTable").style.display="none";
-    document.getElementById("restartScan").style.display="none";
-    startCamera();
-};
-
-document.getElementById("restartScan").onclick=()=>{
-    document.getElementById("resultTable").style.display="none";
-    document.getElementById("restartScan").style.display="none";
-    startCamera();
-};
 </script>
-
 </body>
 </html>
