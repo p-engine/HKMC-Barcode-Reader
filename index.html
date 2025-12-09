@@ -38,270 +38,168 @@
   </div>
 </header>
 
-<button id="startBtn">Kamera indítása</button>
-<button id="stopBtn" style="display:none">Kamera leállítása</button>
+<button id="startScan">Kamera indítása</button>
+<button id="restartScan" style="display:none;">Újra szkennelés</button>
+<div id="cameraContainer"></div>
 
-<div id="err"></div>
-<div id="out"></div>
-<video id="video" autoplay muted></video>
-
-<!-- ZXing -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
+<table id="resultTable" style="display:none;">
+<tbody></tbody>
+</table>
 
 <script>
-/* ---------- helper: show missing styling ---------- */
-function fmtVal(v){
-  return v === '[nincs]' ? `<span class="missing">${v}</span>` : v;
+let videoStream=null;
+
+function beep(){
+    try{
+        const ctx=new AudioContext();
+        const osc=ctx.createOscillator();
+        osc.connect(ctx.destination);
+        osc.frequency.value=800;
+        osc.start();
+        setTimeout(()=>osc.stop(),120);
+    }catch(e){}
 }
 
-/* ---------- parsing logic ---------- */
-function HKMC_Barcode_Content(code){
-  if(!code) return "HIBA";
+async function startCamera(){
+    const container=document.getElementById('cameraContainer');
+    container.innerHTML="";
+    const video=document.createElement('video');
+    container.appendChild(video);
 
-  // EOT eltávolítása
-  code = code.replace(/\x04/g,'');
+    videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    video.srcObject=videoStream;
+    await video.play();
 
-  // fields by RS/GS delimiters (if present)
-  const fields = code.split(/[\x1E\x1D]/).filter(f=>f.length>0);
-
-  // initialize as missing
-  const result = {
-    "Header":"[nincs]",
-    "Vendor Code - Marker":"[nincs]",
-    "Vendor Code":"[nincs]",
-    "HMC Part Number - Marker":"[nincs]",
-    "HMC Part Number":"[nincs]",
-    "Sequence Code - Marker":"[nincs]",
-    "Sequence Code":"[nincs]",
-    "Traceability Code - Marker":"[nincs]",
-    "Traceability Code - Date (YYMMDD)":"[nincs]",
-    "Traceability Code - Plant Info":"[nincs]",
-    "Traceability Code Harman P/N Marker":"[nincs]",
-    "Traceability Code Harman P/N":"[nincs]",
-    "Supplier's Area - Marker":"[nincs]",
-    "Supplier's Area":"[nincs]"
-  };
-
-  // --- Header: tolerate RS/GS between '>' and '0' ---
-  // pattern: [)> (maybe RS/GS) 06
-  const headerRegex = /\[\)>(?:[\x1E\x1D])*06/;
-  if(headerRegex.test(code)) result["Header"] = "[)>06";
-
-  // Helper: find field in delimiter-split array starting with letter
-  const findField = (letter) => {
-    return fields.find(f => f.startsWith(letter));
-  };
-
-  // --- Vendor (V) ---
-  const vField = findField('V');
-  const vIndex = code.indexOf('V');
-  if(vField){
-    result["Vendor Code - Marker"] = 'V';
-    result["Vendor Code"] = vField.slice(1) || '[nincs]';
-  } else if(vIndex >= 0){
-    // fallback: take 4 chars after V if available
-    result["Vendor Code - Marker"] = 'V';
-    result["Vendor Code"] = code.substring(vIndex+1, vIndex+5) || '[nincs]';
-  }
-
-  // --- HMC Part Number: P marker and S marker boundary (10 chars) ---
-  const pIndex = code.indexOf('P');
-  const sIndex = code.indexOf('S');
-  if(pIndex >= 0){
-    result["HMC Part Number - Marker"] = 'P';
-    // if S exists after P, use exactly 10 chars after P
-    if(sIndex > pIndex){
-      result["HMC Part Number"] = code.substring(pIndex+1, pIndex+11) || '[nincs]';
-    } else {
-      // no S found after P: try to extract 10 chars after P (if present)
-      result["HMC Part Number"] = code.substring(pIndex+1, pIndex+11) || '[nincs]';
-    }
-  }
-
-  // --- Sequence (between S and T). S marker must be present (per your rule)
-  const sPos = code.indexOf('S');
-  const tPos = code.indexOf('T');
-  if(sPos >= 0){
-    result["Sequence Code - Marker"] = 'S';
-    if(tPos > sPos){
-      // substring between S and T; remove possible RS/GS inside
-      let seq = code.substring(sPos+1, tPos).replace(/[\x1E\x1D]/g,'');
-      result["Sequence Code"] = seq.length ? seq : '[nincs]';
-    } else {
-      // S present but no T after? treat as missing content
-      result["Sequence Code"] = '[nincs]';
-    }
-  } else {
-    // If S absent, mark both as missing (but per latest you said S always present)
-    result["Sequence Code - Marker"] = '[nincs]';
-    result["Sequence Code"] = '[nincs]';
-  }
-
-  // --- Traceability T ---
-  // get tField either from delimiter fields or substring from tPos to next marker (C) or end
-  if(tPos >= 0){
-    result["Traceability Code - Marker"] = 'T';
-    // Try fields first:
-    let tField = findField('T');
-    if(!tField){
-      // build from code: from T to next 'C' (supplier) or end
-      let nextC = code.indexOf('C', tPos+1);
-      tField = nextC>tPos ? code.substring(tPos, nextC) : code.substring(tPos);
-    }
-    // remove any delimiters
-    tField = tField.replace(/[\x1E\x1D]/g,'');
-    // parse: after 'T'
-    const tdata = tField.slice(1); // without leading 'T'
-    if(tdata.length >= 6) result["Traceability Code - Date (YYMMDD)"] = tdata.slice(0,6);
-    if(tdata.length >= 10) result["Traceability Code - Plant Info"] = tdata.slice(6,10);
-    const rest = tdata.slice(10) || '';
-    if(rest.startsWith('@')){
-      result["Traceability Code Harman P/N Marker"] = '@';
-      result["Traceability Code Harman P/N"] = rest.slice(1) || '[nincs]';
-    } else if(rest.length){
-      result["Traceability Code Harman P/N Marker"] = '[nincs]';
-      result["Traceability Code Harman P/N"] = rest;
-    }
-  }
-
-  // --- Supplier C ---
-  const cField = findField('C');
-  const cPos = code.indexOf('C');
-  if(cField){
-    result["Supplier's Area - Marker"] = 'C';
-    // if there's more characters after C in that field, take up to 3 (as earlier)
-    result["Supplier's Area"] = cField.slice(1,4) || '[nincs]';
-  } else if(cPos >= 0){
-    result["Supplier's Area - Marker"] = 'C';
-    result["Supplier's Area"] = code.substring(cPos+1, cPos+4) || '[nincs]';
-  }
-
-  return result;
+    const barcodeDetector=new BarcodeDetector({formats:["code128","qr_code"]});
+    const scanLoop=async()=>{
+        if(!videoStream) return;
+        try{
+            const codes=await barcodeDetector.detect(video);
+            if(codes.length>0){
+                const raw=codes[0].rawValue;
+                beep();
+                stopCamera();
+                handleCode(raw);
+                return;
+            }
+        }catch(e){}
+        requestAnimationFrame(scanLoop);
+    };
+    requestAnimationFrame(scanLoop);
 }
-
-/* ---------- UI rendering ---------- */
-function renderResult(obj){
-  if(obj === "HIBA") {
-    document.getElementById('err').innerText = "HIBÁS KÓD!";
-    document.getElementById('out').innerHTML = '';
-    return;
-  }
-  document.getElementById('err').innerText = '';
-
-  let html = '<table>';
-  // same ordering as VBA
-  const keys = [
-    "Header",
-    "Vendor Code - Marker",
-    "Vendor Code",
-    "HMC Part Number - Marker",
-    "HMC Part Number",
-    "Sequence Code - Marker",
-    "Sequence Code",
-    "Traceability Code - Marker",
-    "Traceability Code - Date (YYMMDD)",
-    "Traceability Code - Plant Info",
-    "Traceability Code Harman P/N Marker",
-    "Traceability Code Harman P/N",
-    "Supplier's Area - Marker",
-    "Supplier's Area"
-  ];
-  for(const k of keys){
-    const v = obj[k] !== undefined ? obj[k] : '[nincs]';
-    html += `<tr><th>${k}</th><td>${fmtVal(v)}</td></tr>`;
-  }
-  html += '</table>';
-  document.getElementById('out').innerHTML = html;
-}
-
-/* ---------- beep (WebAudio) ---------- */
-function beepShort(){
-  try{
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = 1000;
-    o.connect(g);
-    g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
-    o.start();
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
-    setTimeout(()=>{ o.stop(); ctx.close(); }, 200);
-  }catch(e){
-    // ignore audio errors (autoplay restrictions)
-    console.warn('beep fail', e);
-  }
-}
-
-/* ---------- camera control ---------- */
-let codeReader = null;
-const videoElem = document.getElementById('video');
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-
-function resetAll(){
-  document.getElementById('out').innerHTML = '';
-  document.getElementById('err').innerText = '';
-  videoElem.style.display = 'none';
-  if(codeReader) {
-    try { codeReader.reset(); } catch(e){/*ignore*/ }
-  }
-  startBtn.style.display = '';
-  stopBtn.style.display = 'none';
-}
-
-startBtn.addEventListener('click', startCamera);
-stopBtn.addEventListener('click', stopCamera);
 
 function stopCamera(){
-  if(codeReader){
-    try{ codeReader.reset(); }catch(e){}
-  }
-  videoElem.style.display = 'none';
-  startBtn.style.display = '';
-  stopBtn.style.display = 'none';
-}
-
-/* start camera: clears previous table, shows video, starts decoding */
-function startCamera(){
-  resetAll(); // clear previous output
-  videoElem.style.display = 'block';
-  startBtn.style.display = 'none';
-  stopBtn.style.display = '';
-
-  if(!codeReader) codeReader = new ZXing.BrowserMultiFormatReader();
-
-  // ask for rear camera
-  codeReader.decodeFromVideoDevice(null, videoElem, (result, err) => {
-    if(result){
-      // got text
-      const text = result.text || '';
-      const parsed = HKMC_Barcode_Content(text);
-      renderResult(parsed);
-
-      // beep + vibrate
-      beepShort();
-      if(navigator.vibrate) navigator.vibrate(180);
-
-      // stop camera and hide video
-      try{ codeReader.reset(); }catch(e){}
-      videoElem.style.display = 'none';
-      startBtn.style.display = '';
-      stopBtn.style.display = 'none';
+    if(videoStream){
+        videoStream.getTracks().forEach(t=>t.stop());
+        videoStream=null;
     }
-    // ignore per-frame errors; general errors handled in catch below
-  }).catch(e=>{
-    document.getElementById('err').innerText = "Kamera hiba: " + (e && e.message ? e.message : e);
-    // ensure buttons in proper state
-    startBtn.style.display = '';
-    stopBtn.style.display = 'none';
-    try{ if(codeReader) codeReader.reset(); }catch(e){}
-    videoElem.style.display = 'none';
-  });
+    document.getElementById('cameraContainer').innerHTML="";
 }
 
+function addRow(title,value){
+    const tbody=document.querySelector("#resultTable tbody");
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<th>${title}</th><td>${value||"[nincs]"}</td>`;
+    tbody.appendChild(tr);
+}
+
+function handleCode(code){
+    // remove control chars
+    code=code.replace(/[\x00-\x1F]/g,'');
+    console.log("RAW:",code);
+
+    document.querySelector("#resultTable tbody").innerHTML="";
+    document.getElementById("resultTable").style.display="table";
+    document.getElementById("restartScan").style.display="inline";
+    
+    const result={};
+
+    //---------------- HEADER -----------------
+    result["HEADER"]=code.includes("[)>06")?"[)>06":"[nincs]";
+
+    //---------------- Vendor -----------------
+    let vIndex=code.indexOf('V');
+    if(vIndex>=0){
+        result["Vendor Code Marker"]='V';
+        result["Vendor Code"]=code.substring(vIndex+1,vIndex+5)||"[nincs]";
+    }else{
+        result["Vendor Code"]="[nincs]";
+    }
+
+    //---------------- HMC Part Number --------
+    let pIndex=code.indexOf('P');
+    if(pIndex>=0){
+        result["HMC Part Marker"]='P';
+        result["HMC Part Number"]=code.substring(pIndex+1,pIndex+11)||"[nincs]";
+    }else{
+        // fallback → vendor után 10 char
+        if(result["Vendor Code"]!=="[nincs]"){
+            let pos=code.indexOf(result["Vendor Code"]);
+            result["HMC Part Number"]=code.substring(pos+result["Vendor Code"].length, pos+result["Vendor Code"].length+10)||"[nincs]";
+        }else{
+            result["HMC Part Number"]="[nincs]";
+        }
+    }
+
+    //---------------- Sequence optional ------
+    let sIndex=code.indexOf('S');
+    let tIndex=code.indexOf('T');
+    if(sIndex>=0){
+        result["Sequence Marker"]='S';
+        if(tIndex>sIndex){
+            result["Sequence Code"]=code.substring(sIndex+1,tIndex).trim()||"[nincs]";
+        }else{
+            result["Sequence Code"]=code.substring(sIndex+1).trim()||"[nincs]";
+        }
+    }else{
+        result["Sequence Code"]="[nincs]";
+    }
+
+    //---------------- Traceability -----------
+    if(tIndex>=0){
+        result["Traceability Marker"]='T';
+        result["Traceability"]=code.substring(tIndex+1,tIndex+15)||"[nincs]";
+    }else{
+        result["Traceability"]="[nincs]";
+    }
+
+    //---------------- Harman PN  ------------
+    let atIndex=code.indexOf('@');
+    if(atIndex>=0){
+        result["Harman Marker"]='@';
+        result["Harman PN"]=code.substring(atIndex+1,atIndex+7)||"[nincs]";
+    }else{
+        result["Harman PN"]="[nincs]";
+    }
+
+    //---------------- Supplier ---------------
+    let cIndex=code.indexOf('C');
+    if(cIndex>=0){
+        result["Supplier Marker"]='C';
+        result["Supplier Area"]=code.substring(cIndex+1,cIndex+4)||"[nincs]";
+    }else{
+        result["Supplier Area"]="[nincs]";
+    }
+
+    //------- output table --------------------
+    for(const k in result){
+        addRow(k,result[k]);
+    }
+}
+
+// Buttons
+document.getElementById("startScan").onclick=()=>{
+    document.getElementById("resultTable").style.display="none";
+    document.getElementById("restartScan").style.display="none";
+    startCamera();
+};
+
+document.getElementById("restartScan").onclick=()=>{
+    document.getElementById("resultTable").style.display="none";
+    document.getElementById("restartScan").style.display="none";
+    startCamera();
+};
 </script>
+
 </body>
 </html>
