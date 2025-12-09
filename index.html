@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HKMC Barcode Reader V1</title>
 
-<!-- Cache-busting meta -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -78,7 +77,6 @@ function HKMC_Barcode_Content(code) {
     if(!code) return "HIBA";
 
     code = code.replace(/\x04/g,''); // EOT
-
     let fields = code.split(/[\x1E\x1D]/).filter(f=>f.length>0);
 
     let result = {
@@ -100,9 +98,7 @@ function HKMC_Barcode_Content(code) {
 
     // Header – RS/GS karakterekkel is felismeri
     let headerMatch = code.match(/\[\)>([\x1E\x1D]?)+06/);
-    if(headerMatch){
-        result["Header"] = "[)>06";
-    }
+    if(headerMatch) result["Header"] = "[)>06";
 
     // V → Vendor
     let vField = fields.find(f => f.startsWith('V'));
@@ -110,13 +106,13 @@ function HKMC_Barcode_Content(code) {
 
     // P → Part Number
     let pField = fields.find(f => f.startsWith('P'));
-    if(pField) result["HMC Part Number"] = pField.slice(1);
+    if(pField) result["HMC Part Number"] = pField.slice(1,11);
 
     // S → Sequence (opcionális)
     let sIndex = code.indexOf('S');
     let tIndex = code.indexOf('T');
     if(sIndex>=0 && tIndex>sIndex){
-        let seq = code.substring(sIndex+1, tIndex);
+        let seq = code.substring(sIndex+1, tIndex).replace(/[\x1E\x1D]/g,'');
         result["Sequence Code"] = seq ? seq : '[nincs]';
     }
 
@@ -175,6 +171,8 @@ function resetAll(){
 // ---------------- Kamera ----------------
 let codeReader;
 function startCamera(){
+    resetAll(); // új kamera indításakor törli a táblázatot
+
     const videoElem = document.getElementById("video");
     videoElem.style.display="block";
 
