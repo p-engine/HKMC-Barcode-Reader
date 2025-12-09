@@ -33,14 +33,6 @@ h2 {
     font-size: 1.5em;
     color: #333;
 }
-input[type="text"] {
-    padding: 10px;
-    width: 60%;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    margin-right: 5px;
-    font-size: 1em;
-}
 button {
     padding: 10px 15px;
     border: none;
@@ -71,10 +63,7 @@ th { background-color: #f4f4f4; }
     </div>
 </header>
 
-<input id="codeInput" placeholder="Írd be vagy szkenneld..." type="text" />
-<button onclick="decode()">Dekódolás</button>
 <button onclick="startCamera()">Kamera indítása</button>
-<button onclick="resetAll()">Reset</button>
 
 <div id="err"></div>
 <div id="out"></div>
@@ -98,7 +87,7 @@ function HKMC_Barcode_Content(code) {
         "Vendor Code":"[nincs]",
         "HMC Part Number - Marker":"P",
         "HMC Part Number":"[nincs]",
-        "Sequence Code - Marker":"[nincs]",
+        "Sequence Code - Marker":"S",
         "Sequence Code":"[nincs]",
         "Traceability Code - Marker":"T",
         "Traceability Code - Date (YYMMDD)":"[nincs]",
@@ -123,11 +112,12 @@ function HKMC_Barcode_Content(code) {
     let pField = fields.find(f => f.startsWith('P'));
     if(pField) result["HMC Part Number"] = pField.slice(1);
 
-    // S → Sequence
-    let sField = fields.find(f => f.startsWith('S'));
-    if(sField){
-        result["Sequence Code - Marker"] = sField[0];
-        result["Sequence Code"] = sField.slice(1);
+    // S → Sequence (opcionális)
+    let sIndex = code.indexOf('S');
+    let tIndex = code.indexOf('T');
+    if(sIndex>=0 && tIndex>sIndex){
+        let seq = code.substring(sIndex+1, tIndex);
+        result["Sequence Code"] = seq ? seq : '[nincs]';
     }
 
     // T → Traceability
@@ -156,9 +146,8 @@ function HKMC_Barcode_Content(code) {
 }
 
 // ---------------- UI ----------------
-function decode(){
-    let txt = document.getElementById("codeInput").value;
-    let r = HKMC_Barcode_Content(txt);
+function decode(barcodeText){
+    let r = HKMC_Barcode_Content(barcodeText);
     if(r==="HIBA"){
         document.getElementById("err").innerText="HIBÁS KÓD!";
         document.getElementById("out").innerHTML="";
@@ -177,7 +166,6 @@ function decode(){
 
 // ---------------- Reset ----------------
 function resetAll(){
-    document.getElementById("codeInput").value = "";
     document.getElementById("out").innerHTML = "";
     document.getElementById("err").innerText = "";
     document.getElementById("video").style.display = "none";
@@ -192,10 +180,15 @@ function startCamera(){
 
     if(!codeReader) codeReader = new ZXing.BrowserMultiFormatReader();
 
+    const beep = new Audio('beep.mp3'); // rövid csipogás
+
     codeReader.decodeFromVideoDevice(null, videoElem, (result, err) => {
         if(result){
-            document.getElementById("codeInput").value = result.text;
-            decode();
+            decode(result.text);
+
+            // Csipogás és rezgés
+            beep.play().catch(()=>{});
+            if(navigator.vibrate) navigator.vibrate(200);
 
             codeReader.reset();
             videoElem.style.display="none";
@@ -204,9 +197,6 @@ function startCamera(){
         document.getElementById("err").innerText = "Kamera hiba: " + e;
     });
 }
-
-// ---------------- Cache-busting verziózás (opcionális) ----------------
-// Ha külön JS fájlban lenne a kód, itt lehetne verziózni a betöltést
 </script>
 
 </body>
