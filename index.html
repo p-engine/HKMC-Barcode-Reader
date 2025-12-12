@@ -95,7 +95,7 @@ function HKMC_Barcode_Content(code){
   }
 
   /* --- HMC Part P --- */
-  const pPos = code.indexOf('P');
+ /* const pPos = code.indexOf('P');
   const sPos = code.indexOf('S');
   if(pPos>=0){
     result["HMC Part Number - Marker"]="P";
@@ -107,6 +107,26 @@ function HKMC_Barcode_Content(code){
       result["HMC Part Number"]=code.substring(i+result["Vendor Code"].length,i+result["Vendor Code"].length+10)||"[nincs]";
     }
   }
+  
+/* --- HMC Part P (Javított) --- */
+const pPos = code.indexOf('P');
+if (pPos >= 0) {
+    result["HMC Part Number - Marker"] = "P";
+
+    // P utáni rész
+    let rest = code.slice(pPos + 1);
+
+    // a P mező végét jelző következő marker
+    const nextMarker = rest.search(/[STC@\x1D\x1E]/);
+
+    if (nextMarker === -1) {
+        // nincs további marker → teljes hátralévő rész a cikkszám
+        result["HMC Part Number"] = rest;
+    } else {
+        // marker előtt levő rész → HMC Part Number
+        result["HMC Part Number"] = rest.slice(0, nextMarker);
+    }
+}
 
   /* --- Sequence S --- */
   const tPos = code.indexOf('T');
