@@ -33,7 +33,7 @@
 <header>
   <img src="https://upload.wikimedia.org/wikipedia/commons/c/c2/Harman_International_logo.svg" alt="Harman Logo">
   <div>
-    <h2>HKMC Barcode Reader V1.1</h2>
+    <h2>HKMC Barcode Reader V1.0</h2>
     <div class="creator">Creator @pboldog</div>
   </div>
 </header>
@@ -95,8 +95,8 @@ function HKMC_Barcode_Content(code){
   }
 
   /* --- HMC Part P --- */
- /* const pPos = code.indexOf('P');
-  const sPos = code.indexOf('S');
+  const pPos = code.indexOf('P');
+  //const sPos = code.indexOf('S');
   if(pPos>=0){
     result["HMC Part Number - Marker"]="P";
     result["HMC Part Number"]=code.substring(pPos+1,pPos+11)||"[nincs]";
@@ -106,28 +106,8 @@ function HKMC_Barcode_Content(code){
       let i=code.indexOf(result["Vendor Code"]);
       result["HMC Part Number"]=code.substring(i+result["Vendor Code"].length,i+result["Vendor Code"].length+10)||"[nincs]";
     }
-  } */
+  } 
   
-/* --- HMC Part P (Javított) --- */
-const pPos = code.indexOf('P');
-if (pPos >= 0) {
-    result["HMC Part Number - Marker"] = "P";
-
-    // P utáni rész
-    let rest = code.slice(pPos + 1);
-
-    // a P mező végét jelző következő marker
-    const nextMarker = rest.search(/[STC@\x1D\x1E]/);
-
-    if (nextMarker === -1) {
-        // nincs további marker → teljes hátralévő rész a cikkszám
-        result["HMC Part Number"] = rest;
-    } else {
-        // marker előtt levő rész → HMC Part Number
-        result["HMC Part Number"] = rest.slice(0, nextMarker);
-    }
-}
-
   /* --- Sequence S --- */
   const tPos = code.indexOf('T');
   if(sPos>=0){
