@@ -110,13 +110,16 @@ function HKMC_Barcode_Content(code){
 
   /* --- HMC Part P --- */
 const pPos = code.indexOf('P');
-const sPos = code.indexOf('S', pPos + 10);   // <-- keresés P UTÁN
+const sPos = code.indexOf('S', pPos + 9);   // <-- keresés P UTÁN
 
 if (pPos >= 0) {
   result["HMC Part Number - Marker"] = "P";
 
-  let end = (sPos > pPos) ? sPos : pPos + 11; 
-  result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
+ // let end = (sPos > pPos) ? sPos : pPos + 11; 
+ // result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
+
+  let end = (sPos > pPos) ? sPos : pPos + 1 + 10;
+result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
 
 } else {
   // fallback - Vendor után 10 char
