@@ -33,7 +33,7 @@
 <header>
   <img src="https://upload.wikimedia.org/wikipedia/commons/c/c2/Harman_International_logo.svg" alt="Harman Logo">
   <div>
-    <h2>HKMC Barcode Reader V1</h2>
+    <h2>HKMC Barcode Reader V1.0</h2>
     <div class="creator">Creator @pboldog</div>
   </div>
 </header>
@@ -107,9 +107,9 @@ function HKMC_Barcode_Content(code){
       result["HMC Part Number"]=code.substring(i+result["Vendor Code"].length,i+result["Vendor Code"].length+10)||"[nincs]";
     }
   } */
-
+  
   /* --- HMC Part P --- */
-const pPos = code.indexOf('P');
+/*const pPos = code.indexOf('P');
 const sPos = code.indexOf('S', pPos + 9);   // <-- keresés P UTÁN
 
 if (pPos >= 0) {
@@ -130,8 +130,21 @@ result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
                      i + result["Vendor Code"].length + 10) || "[nincs]";
   }
 }
+*/
+  /* --- HMC Part P --- */
+const pPos = code.indexOf('P');
+const sPos = code.indexOf('S', pPos + 1);
 
-  
+if (pPos >= 0) {
+  result["HMC Part Number - Marker"] = "P";
+
+  // ha nincs 'S' korábban, akkor P után 10 karakter
+  const start = pPos + 1;
+  const end = (sPos > start) ? sPos : start + 10;
+
+  result["HMC Part Number"] = code.substring(start, end) || "[nincs]";
+}
+
   /* --- Sequence S --- */
   const tPos = code.indexOf('T');
   if(sPos>=0){
