@@ -33,7 +33,7 @@
 <header>
   <img src="https://upload.wikimedia.org/wikipedia/commons/c/c2/Harman_International_logo.svg" alt="Harman Logo">
   <div>
-    <h2>HKMC Barcode Reader V1.0</h2>
+    <h2>HKMC Barcode Reader V1</h2>
     <div class="creator">Creator @pboldog</div>
   </div>
 </header>
@@ -118,8 +118,8 @@ if (pPos >= 0) {
  // let end = (sPos > pPos) ? sPos : pPos + 11; 
  // result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
 
-  let end = (sPos > pPos) ? sPos : pPos + 1 + 9;
-result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
+  let end = (sPos > pPos) ? sPos : pPos + 1 + 10;
+result["HMC Part Number"] = code.substring(pPos , end) || "[nincs]";
 
 } else {
   // fallback - Vendor után 10 char
