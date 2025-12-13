@@ -33,7 +33,7 @@
 <header>
   <img src="https://upload.wikimedia.org/wikipedia/commons/c/c2/Harman_International_logo.svg" alt="Harman Logo">
   <div>
-    <h2>HKMC Barcode Reader V1.0 Beta</h2>
+    <h2>HKMC Barcode Reader V1.0</h2>
     <div class="creator">Creator @pboldog</div>
   </div>
 </header>
@@ -109,7 +109,7 @@ function HKMC_Barcode_Content(code){
   } */
   
   /* --- HMC Part P --- */
-/*const pPos = code.indexOf('P');
+const pPos = code.indexOf('P');
 const sPos = code.indexOf('S', pPos + 9);   // <-- keresés P UTÁN
 
 if (pPos >= 0) {
@@ -128,41 +128,6 @@ result["HMC Part Number"] = code.substring(pPos + 1, end) || "[nincs]";
     result["HMC Part Number"] =
       code.substring(i + result["Vendor Code"].length,
                      i + result["Vendor Code"].length + 10) || "[nincs]";
-  }
-}
-*/
-/* --- HMC Part P --- */
-const pPos = code.indexOf('P');
-
-if (pPos >= 0) {
-
-  result["HMC Part Number - Marker"] = "P";
-
-  // P utáni rész
-  let afterP = code.substring(pPos + 1);
-
-  // Minden vezérlő karakter eltávolítása
-  afterP = afterP.replace(/[\x00-\x1F\x7F]/g, "");
-
-  // Pontosan 10 darab nyomtatható karakter
-  result["HMC Part Number"] = afterP.substring(0, 10) || "[nincs]";
-
-} else {
-
-  // fallback - Vendor után 10 karakter
-  if (result["Vendor Code"] !== "[nincs]") {
-
-    let i = code.indexOf(result["Vendor Code"]);
-
-    let tmp = code.substring(
-      i + result["Vendor Code"].length,
-      i + result["Vendor Code"].length + 20   // nagyobbra hagyjuk
-    );
-
-    // vezérlő karakterek eltávolítása
-    tmp = tmp.replace(/[\x00-\x1F\x7F]/g, "");
-
-    result["HMC Part Number"] = tmp.substring(0, 10) || "[nincs]";
   }
 }
 
